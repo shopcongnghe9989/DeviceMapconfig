@@ -1,0 +1,5 @@
+{
+  "name": "CCTV Map Manager",
+  "description": "A professional system for managing CCTV camera placements on building floor plans with interactive drag-and-drop and detailed device tracking.",
+  "requestFramePermissions": []
+}
