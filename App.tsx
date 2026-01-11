@@ -8,7 +8,8 @@ import Header from './components/Header';
 import PublishModal from './components/PublishModal';
 import * as pdfjs from 'pdfjs-dist';
 
-pdfjs.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.10.38/build/pdf.worker.mjs';
+// Cấu hình PDF.js worker từ CDN tin cậy
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
 
 const STORAGE_KEY = 'cctv_project_v2';
 
@@ -32,7 +33,11 @@ const App: React.FC = () => {
   const mapRef = useRef<any>(null);
 
   const toBase64 = (str: string) => btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) => String.fromCharCode(parseInt(p1, 16))));
-  const fromBase64 = (str: string) => decodeURIComponent(Array.prototype.map.call(atob(str), (c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+  const fromBase64 = (str: string) => {
+    try {
+        return decodeURIComponent(Array.prototype.map.call(atob(str), (c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    } catch(e) { return '{}'; }
+  };
 
   useEffect(() => {
     const hash = window.location.hash;
@@ -43,10 +48,10 @@ const App: React.FC = () => {
         setProject(decodedData);
         setIsReadOnly(true);
         return;
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("Error loading share data:", e); }
     }
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) { try { setProject(JSON.parse(saved)); } catch (e) { console.error(e); } }
+    if (saved) { try { setProject(JSON.parse(saved)); } catch (e) { console.error("Error loading local data:", e); } }
   }, []);
 
   const saveProject = useCallback((data: ProjectData) => {
@@ -68,11 +73,16 @@ const App: React.FC = () => {
           const page = await pdf.getPage(1);
           const viewport = page.getViewport({ scale: 2.0 });
           const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          if (!context) return;
           canvas.height = viewport.height;
           canvas.width = viewport.width;
-          await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
+          await page.render({ canvasContext: context, viewport }).promise;
           saveProject({ ...project, floorPlanImage: canvas.toDataURL('image/png') });
-        } catch (e) { alert("Lỗi xử lý PDF"); } finally { setIsProcessing(false); }
+        } catch (e) { 
+            console.error(e);
+            alert("Lỗi xử lý file PDF. Hãy thử dùng định dạng ảnh (JPG/PNG)."); 
+        } finally { setIsProcessing(false); }
       })();
     } else {
       const reader = new FileReader();
@@ -84,6 +94,7 @@ const App: React.FC = () => {
   const handleExportImage = () => {
     if (mapRef.current) {
         const stage = mapRef.current.getStage();
+        if (!stage) return;
         const dataURL = stage.toDataURL({ pixelRatio: 2 });
         const link = document.createElement('a');
         link.download = `SODO_${project.projectName}.png`;
@@ -125,7 +136,7 @@ const App: React.FC = () => {
   const selectedCamera = project.cameras.find(c => c.id === selectedCameraId) || null;
 
   return (
-    <div className="flex h-screen w-full bg-slate-950 overflow-hidden">
+    <div className="flex h-screen w-full bg-slate-950 overflow-hidden text-slate-100">
       <Sidebar 
         project={project}
         onFileUpload={handleFileUpload}
@@ -147,11 +158,18 @@ const App: React.FC = () => {
         onDeleteConnection={(id) => saveProject({ ...project, connections: project.connections.filter(c => c.id !== id) })}
         isReadOnly={isReadOnly}
         onExitReadOnly={() => { window.location.hash = ''; window.location.reload(); }}
-        onReset={() => { if(confirm("Reset?")) saveProject({ ...project, cameras: [], connections: [], floorPlanImage: null }); }}
+        onReset={() => { if(confirm("Bạn có chắc muốn xóa hết dữ liệu dự án này?")) saveProject({ ...project, cameras: [], connections: [], floorPlanImage: null }); }}
       />
       <main className="flex-1 flex flex-col min-w-0 relative">
         <Header project={project} setProject={saveProject} isReadOnly={isReadOnly} />
-        {isProcessing && <div className="absolute inset-0 z-50 bg-slate-950/60 flex items-center justify-center"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 flex flex-col items-center gap-4"><div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div><p className="text-white font-medium">Đang xử lý...</p></div></div>}
+        {isProcessing && (
+            <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center">
+                <div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-white font-medium">Đang xử lý bản vẽ...</p>
+                </div>
+            </div>
+        )}
         <div className="flex-1 relative bg-slate-900 overflow-hidden">
           <CameraMap 
             ref={mapRef}
@@ -173,7 +191,8 @@ const App: React.FC = () => {
               <div className="p-8 border-2 border-dashed border-slate-700 rounded-xl flex flex-col items-center">
                 <svg className="w-16 h-16 mb-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 <p className="text-xl font-medium mb-2">Chưa có bản vẽ hệ thống</p>
-                {!isReadOnly && <label className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg cursor-pointer transition-colors shadow-lg">Tải lên bản vẽ (PDF/Ảnh)<input type="file" className="hidden" accept="image/*,.pdf" onChange={handleFileUpload} /></label>}
+                <p className="text-xs mb-6 text-slate-500">Hỗ trợ PDF, PNG, JPG</p>
+                {!isReadOnly && <label className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg cursor-pointer transition-colors shadow-lg">Tải lên bản vẽ ngay<input type="file" className="hidden" accept="image/*,.pdf" onChange={handleFileUpload} /></label>}
               </div>
             </div>
           )}

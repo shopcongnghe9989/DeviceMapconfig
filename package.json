@@ -9,10 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react-dom": "^19.2.3",
     "react": "^19.2.3",
-    "react-konva": "^19.2.1",
-    "konva": "^9.3.18",
+    "react-dom": "^19.2.3",
+    "react-konva": "19.0.0",
+    "konva": "9.3.18",
     "pdfjs-dist": "4.10.38"
   },
   "devDependencies": {
