@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState, useRef, useImperativeHandle, forwardRef } from 'react';
+import React, { useEffect, useState, useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { Stage, Layer, Image as KonvaImage, Group, Circle, Path, Text, Wedge, Arrow } from 'react-konva';
 import { CameraDevice, CameraType, CameraStatus, Connection } from '../types';
 
@@ -18,7 +18,7 @@ interface CameraMapProps {
   onOpenModal: () => void;
 }
 
-const ROTATION_HANDLE_OFFSET = 45;
+const ROTATION_HANDLE_OFFSET = 60; // Khoảng cách xa hơn cho ngón tay dễ xoay
 
 const getDeviceIconPath = (type: CameraType) => {
   switch (type) {
@@ -44,91 +44,83 @@ const CameraIcon: React.FC<{
     onClick: () => void;
     onDoubleClick: () => void;
 }> = ({ cam, isReadOnly, isSelected, isSelectedAsSource, onUpdate, onClick, onDoubleClick }) => {
-  const isMaintenance = cam.status === CameraStatus.MAINTENANCE;
-  const color = isMaintenance ? '#f59e0b' : '#3b82f6';
+  const [localPos, setLocalPos] = useState({ x: cam.x, y: cam.y });
+  const [localRot, setLocalRot] = useState(cam.rotation);
+
+  useEffect(() => {
+    setLocalPos({ x: cam.x, y: cam.y });
+    setLocalRot(cam.rotation);
+  }, [cam.x, cam.y, cam.rotation]);
+
+  const color = cam.status === CameraStatus.MAINTENANCE ? '#f59e0b' : '#3b82f6';
   const isCamera = cam.type.toLowerCase().includes('camera');
   const isNetwork = cam.type === CameraType.WIFI || cam.type === CameraType.ROUTER || cam.type === CameraType.SWITCH;
   
-  const pathData = getDeviceIconPath(cam.type);
+  const iconPath = useMemo(() => getDeviceIconPath(cam.type), [cam.type]);
 
   const handleRotation = (e: any) => {
     if (isReadOnly) return;
     const stage = e.target.getStage();
     const pointerPos = stage.getPointerPosition();
     if (!pointerPos) return;
-    const angle = Math.atan2(pointerPos.y - cam.y, pointerPos.x - cam.x);
+    // Account for stage position/scale
+    const stageX = stage.x();
+    const stageY = stage.y();
+    const angle = Math.atan2(pointerPos.y - (localPos.y + stageY), pointerPos.x - (localPos.x + stageX));
     const rotation = (angle * 180) / Math.PI + 90;
-    onUpdate({ ...cam, rotation: rotation });
+    setLocalRot(rotation);
   };
 
   return (
     <Group 
-      x={cam.x} 
-      y={cam.y}
+      x={localPos.x} 
+      y={localPos.y}
       onClick={(e) => { e.cancelBubble = true; onClick(); }}
       onTap={(e) => { e.cancelBubble = true; onClick(); }}
       onDblClick={(e) => { e.cancelBubble = true; onDoubleClick(); }}
       onDblTap={(e) => { e.cancelBubble = true; onDoubleClick(); }}
     >
       {(isSelected || isSelectedAsSource) && (
-        <Circle
-          radius={30}
-          stroke={isSelectedAsSource ? "#10b981" : "#ffffff"}
-          strokeWidth={isSelected ? 3 : 2}
-          opacity={0.5}
-          dash={isSelected ? [] : [5, 2]}
-        />
+        <Circle radius={38} stroke={isSelectedAsSource ? "#10b981" : "#ffffff"} strokeWidth={isSelected ? 3 : 2} opacity={0.4} />
       )}
 
       {isCamera && (
-        <Wedge
-          radius={120}
-          angle={cam.fov || 90}
-          fill={color}
-          opacity={0.15}
-          rotation={(cam.rotation || 0) - (cam.fov || 90) / 2}
-          stroke={color}
-          strokeWidth={1}
-          dash={[5, 5]}
-        />
+        <Wedge radius={120} angle={cam.fov || 90} fill={color} opacity={0.08} rotation={localRot - (cam.fov || 90) / 2} stroke={color} strokeWidth={1} />
       )}
 
       {isNetwork && (
-        <Circle
-            radius={150}
-            fill={color}
-            opacity={0.05}
-            stroke={color}
-            strokeWidth={1}
-            dash={[10, 5]}
-        />
+        <Circle radius={150} fill={color} opacity={0.03} stroke={color} strokeWidth={1} dash={[10, 5]} />
       )}
 
       <Group 
-        rotation={cam.rotation || 0}
+        rotation={localRot}
         draggable={!isReadOnly}
         onDragMove={(e) => {
-          onUpdate({ ...cam, x: e.target.x() + cam.x, y: e.target.y() + cam.y });
+          setLocalPos({ x: e.target.x() + localPos.x, y: e.target.y() + localPos.y });
           e.target.position({ x: 0, y: 0 });
         }}
+        onDragEnd={() => onUpdate({ ...cam, x: localPos.x, y: localPos.y })}
       >
-        <Circle radius={22} fill="white" shadowBlur={isSelected ? 15 : 5} shadowOpacity={0.3} />
-        <Circle radius={20} fill={color} />
-        <Path data={pathData} fill="white" scaleX={0.6} scaleY={0.6} offsetX={12} offsetY={12} />
+        <Circle radius={26} fill="white" shadowBlur={isSelected ? 10 : 2} shadowOpacity={0.2} />
+        <Circle radius={23} fill={color} />
+        <Path data={iconPath} fill="white" scaleX={0.7} scaleY={0.7} offsetX={12} offsetY={12} />
       </Group>
 
       {isSelected && !isReadOnly && (
         <Group
-          x={ROTATION_HANDLE_OFFSET * Math.sin((cam.rotation * Math.PI) / 180)}
-          y={-ROTATION_HANDLE_OFFSET * Math.cos((cam.rotation * Math.PI) / 180)}
+          x={ROTATION_HANDLE_OFFSET * Math.sin((localRot * Math.PI) / 180)}
+          y={-ROTATION_HANDLE_OFFSET * Math.cos((localRot * Math.PI) / 180)}
           draggable
           onDragMove={handleRotation}
+          onDragEnd={() => onUpdate({ ...cam, rotation: localRot })}
         >
-          <Circle radius={6} fill="white" stroke="#3b82f6" strokeWidth={2} shadowBlur={5} />
+          {/* Hit area lớn cho mobile */}
+          <Circle radius={15} fill="#3b82f6" opacity={0.1} /> 
+          <Circle radius={8} fill="white" stroke="#3b82f6" strokeWidth={2} />
         </Group>
       )}
 
-      <Text text={cam.name} y={32} width={140} align="center" offsetX={70} fontSize={12} fill="white" fontStyle="bold" shadowBlur={4} />
+      <Text text={cam.name} y={38} width={140} align="center" offsetX={70} fontSize={11} fill="white" fontStyle="bold" shadowBlur={1} />
     </Group>
   );
 };
@@ -136,8 +128,7 @@ const CameraIcon: React.FC<{
 const CameraMap = forwardRef<any, CameraMapProps>((props, ref) => {
   const { imageUrl, cameras, connections, isAddMode, isConnectionMode, connectionStartId, selectedCameraId, isReadOnly = false, onAddCamera, onUpdateCamera, onSelectCamera, onOpenModal } = props;
   const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const stageRef = useRef<any>(null);
 
   useImperativeHandle(ref, () => ({
@@ -148,93 +139,61 @@ const CameraMap = forwardRef<any, CameraMapProps>((props, ref) => {
     if (imageUrl) {
       const img = new window.Image();
       img.src = imageUrl;
-      img.onload = () => { setImage(img); updateSize(); };
-    } else {
-      setImage(null);
+      img.onload = () => setImage(img);
     }
   }, [imageUrl]);
 
-  const updateSize = () => {
-    if (containerRef.current) {
-      setStageSize({
-        width: containerRef.current.clientWidth,
-        height: containerRef.current.clientHeight
-      });
-    }
-  };
-
   useEffect(() => {
+    const updateSize = () => setStageSize({ width: window.innerWidth, height: window.innerHeight - 64 });
     window.addEventListener('resize', updateSize);
     updateSize();
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  const handleStageClick = (e: any) => {
-    if (isReadOnly) return;
+  const handleInteraction = (e: any) => {
     if (isAddMode) {
-      const stage = e.target.getStage();
-      const pointerPosition = stage.getPointerPosition();
-      if (pointerPosition) onAddCamera(pointerPosition.x, pointerPosition.y);
-    } else {
-      if (e.target === e.target.getStage() || (image && e.target.className === 'Image')) {
+        const stage = e.target.getStage();
+        const pos = stage.getPointerPosition();
+        if (pos) {
+            onAddCamera(pos.x - stage.x(), pos.y - stage.y());
+        }
+    } else if (e.target === e.target.getStage()) {
         onSelectCamera('');
-      }
     }
   };
 
   return (
-    <div ref={containerRef} className="w-full h-full overflow-auto custom-scrollbar relative bg-slate-900 select-none">
-      {image && (
-        <Stage 
-          ref={stageRef}
-          width={Math.max(stageSize.width, image.width)} 
-          height={Math.max(stageSize.height, image.height)}
-          onClick={handleStageClick}
-          onTap={handleStageClick}
-          className={isAddMode ? 'cursor-crosshair' : 'cursor-default'}
-        >
-          <Layer>
-            <KonvaImage image={image} />
-            {connections.map(conn => {
-              const from = cameras.find(c => c.id === conn.fromId);
-              const to = cameras.find(c => c.id === conn.toId);
-              if (!from || !to) return null;
-              return (
-                <Arrow
-                  key={conn.id}
-                  points={[from.x, from.y, to.x, to.y]}
-                  stroke="#64748b"
-                  strokeWidth={2}
-                  fill="#64748b"
-                  pointerLength={10}
-                  pointerWidth={10}
-                  opacity={0.7}
-                />
-              );
-            })}
-            {cameras.map((cam) => (
-              <CameraIcon 
+    <div className="w-full h-full overflow-hidden bg-slate-900 touch-none">
+      <Stage 
+        ref={stageRef}
+        width={stageSize.width} 
+        height={stageSize.height}
+        draggable={!isAddMode}
+        onClick={handleInteraction}
+        onTap={handleInteraction}
+      >
+        <Layer>
+          {image && <KonvaImage image={image} />}
+          {connections.map(conn => {
+            const from = cameras.find(c => c.id === conn.fromId);
+            const to = cameras.find(c => c.id === conn.toId);
+            if (!from || !to) return null;
+            return <Arrow key={conn.id} points={[from.x, from.y, to.x, to.y]} stroke="#64748b" strokeWidth={2} fill="#64748b" opacity={0.4} pointerLength={10} pointerWidth={10} />;
+          })}
+          {cameras.map((cam) => (
+            <CameraIcon 
                 key={cam.id} 
                 cam={cam} 
-                isReadOnly={isReadOnly}
-                isSelected={selectedCameraId === cam.id}
-                isSelectedAsSource={connectionStartId === cam.id}
-                onUpdate={onUpdateCamera}
-                onClick={() => onSelectCamera(cam.id)}
-                onDoubleClick={onOpenModal}
-              />
-            ))}
-          </Layer>
-        </Stage>
-      )}
-      {(isAddMode || isConnectionMode) && !isReadOnly && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 px-6 py-3 bg-slate-800 text-white rounded-full font-bold shadow-2xl flex items-center gap-2 animate-pulse z-10 border border-slate-700">
-          <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isAddMode ? "M12 4v16m8-8H4" : "M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"} />
-          </svg>
-          {isAddMode ? 'Chạm để đặt thiết bị mới' : (connectionStartId ? 'Chọn thiết bị đích' : 'Chọn thiết bị nguồn')}
-        </div>
-      )}
+                isReadOnly={isReadOnly} 
+                isSelected={selectedCameraId === cam.id} 
+                isSelectedAsSource={connectionStartId === cam.id} 
+                onUpdate={onUpdateCamera} 
+                onClick={() => onSelectCamera(cam.id)} 
+                onDoubleClick={onOpenModal} 
+            />
+          ))}
+        </Layer>
+      </Stage>
     </div>
   );
 });
